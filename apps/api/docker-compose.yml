@@ -1,23 +1,34 @@
-version: '3.8'
+version: "3.8"
 
 services:
-  postgres:
-    image: postgres:16
-    container_name: oneport-postgres
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-oneport}
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    networks:
-      - oneport-network
+    postgres:
+        image: postgres:16
+        container_name: oneport-postgres
+        environment:
+            POSTGRES_USER: ${POSTGRES_USER:-postgres}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+            POSTGRES_DB: ${POSTGRES_DB:-oneport}
+        ports:
+            - "5432:5432"
+        volumes:
+            - postgres-data:/var/lib/postgresql/data
+        networks:
+            - oneport-network
+
+    redis:
+        image: redis:7-alpine
+        container_name: oneport-redis
+        ports:
+            - "6379:6379"
+        volumes:
+            - redis-data:/data
+        networks:
+            - oneport-network
 
 networks:
-  oneport-network:
-    driver: bridge
+    oneport-network:
+        driver: bridge
 
 volumes:
-  postgres-data:
+    postgres-data:
+    redis-data:
