@@ -5,13 +5,53 @@ import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { TokenBalanceDto } from './dto/token-balance.dto';
 import axios from 'axios';
 
+interface TokenInfo {
+  chainId: number;
+  address: string;
+  symbol: string;
+  name: string;
+  decimals: number;
+  logoURI?: string;
+  tags?: string[];
+  extensions?: {
+    website?: string;
+    twitter?: string;
+    coingeckoId?: string;
+  };
+}
+
 @Injectable()
 export class BalancesService {
   private readonly connection: Connection;
   private readonly coingeckoApi = 'https://api.coingecko.com/api/v3';
+  private tokenList: TokenInfo[] = [];
+  private tokenListLastFetched: number = 0;
+  private readonly TOKEN_LIST_URL = 'https://cdn.jsdelivr.net/gh/solana-labs/token-list@main/src/tokens/solana.tokenlist.json';
+  private readonly TOKEN_LIST_CACHE_TTL = 3600000; // 1 hour
 
   constructor(private readonly walletsService: WalletsService) {
     this.connection = new Connection(clusterApiUrl('mainnet-beta'));
+    this.fetchTokenList();
+  }
+
+  private async fetchTokenList() {
+    const now = Date.now();
+    if (this.tokenList.length === 0 || now - this.tokenListLastFetched > this.TOKEN_LIST_CACHE_TTL) {
+      try {
+        const response = await axios.get(this.TOKEN_LIST_URL);
+        if (response.data && response.data.tokens) {
+          this.tokenList = response.data.tokens;
+          this.tokenListLastFetched = now;
+          console.log(`Loaded ${this.tokenList.length} tokens from Solana token list`);
+        }
+      } catch (error) {
+        console.error('Error fetching Solana token list:', error);
+      }
+    }
+  }
+
+  private getTokenInfo(mint: string): TokenInfo | null {
+    return this.tokenList.find(token => token.address === mint) || null;
   }
 
   async getWalletBalance(id: string, userId: string) {
@@ -34,7 +74,9 @@ export class BalancesService {
       // Get price data
       const priceData = await this.getPriceData([
         'solana',
-        ...tokenBalances.map(token => `solana:${token.mint}`),
+        ...tokenBalances.map(token => 
+          token.coingeckoId ? token.coingeckoId : `solana:${token.mint}`
+        ).filter(Boolean),
       ]);
       
       // Add price data to SOL balance
@@ -42,8 +84,8 @@ export class BalancesService {
       
       // Add price data to token balances
       const tokensWithPrices = tokenBalances.map(token => {
-        const tokenId = `solana:${token.mint}`;
-        const usdValue = token.amount * (priceData[tokenId]?.usd || 0);
+        const priceId = token.coingeckoId || `solana:${token.mint}`;
+        const usdValue = token.amount * (priceData[priceId]?.usd || 0);
         return {
           ...token,
           usdValue,
@@ -86,6 +128,9 @@ export class BalancesService {
 
   private async getSplTokenBalances(publicKey: PublicKey): Promise<TokenBalanceDto[]> {
     try {
+      // Ensure we have the latest token list
+      await this.fetchTokenList();
+      
       const tokenAccounts = await this.connection.getParsedTokenAccountsByOwner(
         publicKey,
         { programId: TOKEN_PROGRAM_ID },
@@ -101,10 +146,20 @@ export class BalancesService {
           // Filter out tokens with zero balance
           if (amount === 0) return null;
           
+          // Get token info from the verified token list
+          const tokenInfo = this.getTokenInfo(mint);
+          
+          // Filter out tokens not in the official token list
+          if (!tokenInfo) return null;
+          
           return {
             mint,
             amount,
             decimals,
+            symbol: tokenInfo.symbol,
+            name: tokenInfo.name,
+            logoUrl: tokenInfo.logoURI,
+            coingeckoId: tokenInfo.extensions?.coingeckoId,
           };
         })
         .filter(Boolean as any) as TokenBalanceDto[];

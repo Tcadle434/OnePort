@@ -6,4 +6,5 @@ export class TokenBalanceDto {
   usdValue?: number;
   decimals?: number;
   logoUrl?: string;
+  coingeckoId?: string;
 }
